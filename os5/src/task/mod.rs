@@ -30,6 +30,11 @@ pub use pid::{pid_alloc, KernelStack, PidHandle};
 pub use processor::{
     current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
 };
+use crate::config::PAGE_SIZE;
+use crate::mm::{MapPermission, VirtAddr};
+use crate::syscall::TaskInfo;
+use crate::task::processor::PROCESSOR;
+use crate::timer::{get_time_ms};
 
 /// Make current task suspended and switch to the next task
 pub fn suspend_current_and_run_next() {
@@ -56,6 +61,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     let task = take_current_task().unwrap();
     // **** access current TCB exclusively
     let mut inner = task.inner_exclusive_access();
+    // println!("[exit_current_and_run_next] inner: {:?}", *inner);
     // Change status to Zombie
     inner.task_status = TaskStatus::Zombie;
     // Record exit code
@@ -64,7 +70,9 @@ pub fn exit_current_and_run_next(exit_code: i32) {
 
     // ++++++ access initproc TCB exclusively
     {
+        // println!("[exit_current_and_run_next] getting initproc inner");
         let mut initproc_inner = INITPROC.inner_exclusive_access();
+        // println!("[exit_current_and_run_next] got initproc inner");
         for child in inner.children.iter() {
             child.inner_exclusive_access().parent = Some(Arc::downgrade(&INITPROC));
             initproc_inner.children.push(child.clone());
@@ -84,13 +92,86 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     schedule(&mut _unused as *mut _);
 }
 
+#[inline]
+pub fn get_current_pid() -> Option<usize> {
+    PROCESSOR.exclusive_access().current().map(|task| task.pid.0)
+}
+
+pub fn get_current_task_info() -> Option<TaskInfo> {
+    let task = PROCESSOR.exclusive_access().current()?;
+    let inner = task.inner_exclusive_access();
+    let current_time_ms = get_time_ms();
+
+    Some(TaskInfo {
+        status: inner.task_status,
+        syscall_times: inner.syscall_times,
+        time: current_time_ms - inner.start_time_ms,
+    })
+}
+
+pub fn set_current_task_priority(priority: isize) -> Option<()> {
+    let task = PROCESSOR.exclusive_access().current()?;
+    let mut inner = task.inner_exclusive_access();
+    inner.priority = priority;
+    Some(())
+}
+
+pub fn increase_syscall_times(syscall_id: usize) -> Option<()> {
+    let task = PROCESSOR.exclusive_access().current()?;
+    let mut inner = task.inner_exclusive_access();
+    inner.syscall_times[syscall_id] += 1;
+    Some(())
+}
+
+pub fn decrease_syscall_times(syscall_id: usize) -> Option<()> {
+    let task = PROCESSOR.exclusive_access().current()?;
+    let mut inner = task.inner_exclusive_access();
+    inner.syscall_times[syscall_id] -= 1;
+    Some(())
+}
+
+pub fn current_task_mmap(start: usize, len: usize, port: usize) -> Option<()> {
+    if start & (PAGE_SIZE - 1) != 0 {
+        debug!("[kernel] [pid {}] start not aligned, mmap failed", get_current_pid()?);
+        return None;
+    }
+    if port & !0b111 != 0 || port & 0b111 == 0 {
+        debug!("[kernel] [pid {}] port `{:#b}` is illegal, mmap failed", port, get_current_pid()?);
+        return None;
+    }
+    let start_va = VirtAddr::from(start);
+    let end_va: VirtAddr = VirtAddr::from(start + len).ceil().into();
+
+    let task = PROCESSOR.exclusive_access().current()?;
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+    if memory_set.is_conflict(start_va, end_va) {
+        debug!("[kernel] [pid {:?}] memory conflicted, mmap failed", task.pid);
+        return None;
+    }
+    let permission = MapPermission::from_bits((port << 1) as u8)? | MapPermission::U;
+    memory_set.insert_framed_area(start_va, end_va, permission)?;
+    Some(())
+}
+
+pub fn current_task_munmap(start: usize, len: usize) -> Option<()> {
+    let start_va = VirtAddr::from(start);
+    let end_va: VirtAddr = VirtAddr::from(start + len).ceil().into();
+
+    let task = PROCESSOR.exclusive_access().current()?;
+    let mut inner = task.inner_exclusive_access();
+    let memory_set = &mut inner.memory_set;
+    memory_set.unmap_area(start_va, end_va)
+}
+
 lazy_static! {
     /// Creation of initial process
     ///
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
     pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(
-        get_app_data_by_name("ch5b_initproc").unwrap()
+        get_app_data_by_name("ch5b_initproc").unwrap(),
+        "ch5b_initproc"
     ));
 }
 

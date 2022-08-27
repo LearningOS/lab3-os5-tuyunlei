@@ -5,13 +5,18 @@
 //! and the replacement and transfer of control flow of different applications are executed.
 
 
-use super::__switch;
+use alloc::sync::Arc;
+use core::fmt::{Debug, Formatter};
+
+use lazy_static::*;
+
+use crate::sync::UPSafeCell;
+use crate::timer::get_time_ms;
+use crate::trap::TrapContext;
+
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
-use crate::sync::UPSafeCell;
-use crate::trap::TrapContext;
-use alloc::sync::Arc;
-use lazy_static::*;
+use super::__switch;
 
 /// Processor management structure
 pub struct Processor {
@@ -28,14 +33,23 @@ impl Processor {
             idle_task_cx: TaskContext::zero_init(),
         }
     }
+    #[inline]
     fn get_idle_task_cx_ptr(&mut self) -> *mut TaskContext {
         &mut self.idle_task_cx as *mut _
     }
+    #[inline]
     pub fn take_current(&mut self) -> Option<Arc<TaskControlBlock>> {
         self.current.take()
     }
+    #[inline]
     pub fn current(&self) -> Option<Arc<TaskControlBlock>> {
         self.current.as_ref().map(|task| Arc::clone(task))
+    }
+}
+
+impl Debug for Processor {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PROCESSOR")
     }
 }
 
@@ -50,20 +64,28 @@ lazy_static! {
 /// and switch the process through __switch
 pub fn run_tasks() {
     loop {
+        // println!("[kernel] main loop");
         let mut processor = PROCESSOR.exclusive_access();
+        // println!("[kernel] got processor");
         if let Some(task) = fetch_task() {
             let idle_task_cx_ptr = processor.get_idle_task_cx_ptr();
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
+            // println!("[kernel] running task pid={} name={}", task.pid.0, task_inner.name);
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
             task_inner.task_status = TaskStatus::Running;
+            if task_inner.start_time_ms == 0 {
+                task_inner.start_time_ms = get_time_ms();
+            }
             drop(task_inner);
             // release coming task TCB manually
             processor.current = Some(task);
             // release processor manually
             drop(processor);
             unsafe {
+                // println!("start execute");
                 __switch(idle_task_cx_ptr, next_task_cx_ptr);
+                // println!("switch back");
             }
         }
     }

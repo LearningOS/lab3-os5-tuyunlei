@@ -8,6 +8,9 @@ use super::TaskControlBlock;
 use crate::sync::UPSafeCell;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::{Debug, Formatter};
+use core::iter::Map;
 use lazy_static::*;
 
 pub struct TaskManager {
@@ -26,9 +29,37 @@ impl TaskManager {
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
         self.ready_queue.push_back(task);
     }
+
     /// Take a process out of the ready queue
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        let task = self.ready_queue.pop_front()?;
+        let mut inner = task.inner_exclusive_access();
+        inner.stride += 6469693230 / inner.priority;
+        drop(inner);
+        Some(task)
+        // let mut target: Option<(isize, usize)> = None;
+        // for (index, task) in self.ready_queue.iter_mut().enumerate() {
+        //     let inner = task.inner_exclusive_access();
+        //     if let Some(t) = &target {
+        //         if inner.stride < t.0 {
+        //             target = Some((inner.priority, index));
+        //         }
+        //     } else {
+        //         target = Some((inner.priority, index))
+        //     }
+        // }
+        // self.ready_queue.remove(target?.1).map(|task| {
+        //     let mut inner = task.inner_exclusive_access();
+        //     inner.stride += 6469693230 / inner.priority;
+        //     drop(inner);
+        //     task
+        // })
+    }
+}
+
+impl Debug for TaskManager {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "TaskManager")
     }
 }
 
