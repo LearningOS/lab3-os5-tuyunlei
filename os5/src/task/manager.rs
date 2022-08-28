@@ -94,7 +94,6 @@ impl TaskManager {
     /// Add process back to ready queue
     pub fn add(&mut self, task: Arc<TaskControlBlock>) {
         let stride = task.inner_exclusive_access().stride;
-        println!("add a task, stride={}", stride);
         self.ready_queue.push(StrideComparator(task));
     }
 
@@ -102,7 +101,6 @@ impl TaskManager {
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
         let task = self.ready_queue.pop()?.0;
         let mut inner = task.inner_exclusive_access();
-        println!("fetch a task, stride={}", inner.stride);
         inner.stride += 6469693230 / inner.priority;
         drop(inner);
         Some(task)
