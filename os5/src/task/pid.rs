@@ -7,6 +7,7 @@ use crate::config::{KERNEL_STACK_SIZE, PAGE_SIZE, TRAMPOLINE};
 use crate::mm::{MapPermission, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use alloc::vec::Vec;
+use core::fmt::{Debug, Formatter};
 use lazy_static::*;
 
 /// Process identifier allocator using stack allocation
@@ -43,6 +44,12 @@ impl PidAllocator {
     }
 }
 
+impl Debug for PidAllocator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PidAllocator")
+    }
+}
+
 lazy_static! {
     /// Pid allocator instance through lazy_static!
     static ref PID_ALLOCATOR: UPSafeCell<PidAllocator> =
@@ -51,6 +58,12 @@ lazy_static! {
 
 /// Abstract structure of PID
 pub struct PidHandle(pub usize);
+
+impl Debug for PidHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl Drop for PidHandle {
     fn drop(&mut self) {

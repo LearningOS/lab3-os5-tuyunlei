@@ -4,6 +4,8 @@ use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAdd
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::intrinsics::size_of;
+use core::slice;
 use bitflags::*;
 
 bitflags! {
@@ -195,4 +197,14 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .translate_va(VirtAddr::from(va))
         .unwrap()
         .get_mut()
+}
+
+pub unsafe fn copy_data_into_space<T>(data: &T, token: usize, ptr: *const T) {
+    let mut i = 0;
+    let data = slice::from_raw_parts(data as *const _ as *const u8, size_of::<T>());
+    let buffers = translated_byte_buffer(token, ptr as *const u8, size_of::<T>());
+    for buffer in buffers {
+        buffer.copy_from_slice(&data[i..]);
+        i += buffer.len();
+    }
 }

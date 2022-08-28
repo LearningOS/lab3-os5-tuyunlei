@@ -19,9 +19,9 @@ OBJCOPY := rust-objcopy --binary-architecture=riscv64
 
 CHAPTER ?= 5
 TEST ?= $(CHAPTER)
-BASE ?= 1
+BASE ?= 2
 
-build: env $(KERNEL_BIN)
+build: $(KERNEL_BIN)
 
 env:
 	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
@@ -45,6 +45,14 @@ run: build
 		-nographic \
 		-bios $(BOOTLOADER) \
 		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA)
+
+debug-run: build
+	@qemu-system-riscv64 \
+		-machine virt \
+		-nographic \
+		-bios $(BOOTLOADER) \
+		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+		-s -S
 
 debug: build
 	@tmux new-session -d \
